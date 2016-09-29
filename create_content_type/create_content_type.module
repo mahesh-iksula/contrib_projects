@@ -1,0 +1,15 @@
+<?php
+
+function create_content_type_menu(){
+  $items['product-uploader'] = array(
+    'title' => 'Upload the products',
+    'description' => 'product uploader',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('product_uploader_form'),
+    'access callback' => TRUE,
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'forms/product_uploader.form.inc',
+    'file path' => drupal_get_path('module', 'create_content_type'),
+  );
+  return $items;
+}
