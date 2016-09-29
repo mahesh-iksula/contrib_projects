@@ -1,0 +1,7 @@
+name = "Tag User in Comment"
+description = "Using this module user can/mentioned users in Comment"
+core = 7.x
+package = 'custom'
+version = "7.x-5.10"
+core = "7.x"
+datestamp = "1329924048"

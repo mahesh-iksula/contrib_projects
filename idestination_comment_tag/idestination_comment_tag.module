@@ -1,0 +1,180 @@
+<?php
+
+/**
+ * @file:- this module file Implemnts functionality, where user can tag others user in comment section by typing @
+ */
+
+/**
+ * Implemnts hook_menu()
+ */
+function idestination_comment_tag_menu() {
+  $items['typehead/json'] = array(
+    'description' => 'Returns the product details',
+    'page callback' => 'typehead_results',
+    'access callback' => TRUE,
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_comment_presave($comment)
+ * @param type $comment
+ */
+function idestination_comment_tag_comment_presave($comment) {
+//  $comment_body = $comment->comment_body['und'][0]['value'];
+//  $comment->comment_body['und'][0]['value'] = $comment_body . '<a href="#">123</a>';
+//  $comment->comment_body['und'][0]['format'] = 'full_html';
+//  dpm($comment, 'comment in presave');
+}
+
+/**
+ * Implements hook_form_form_id_alter to add one markup field and ine custom submit handler
+ * @param type $form
+ * @param type $form_state
+ * @param type $form_id
+ */
+function idestination_comment_tag_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'comment_node_talent_form' || $form_id == 'comment_node_team_form' || $form_id == 'comment_node_pehchaan_kaun_form' || $form_id == 'comment_node_dexp_portfolio_form' || $form_id == 'comment_node_events_form') {
+    $form['typehead_suggestions'] = array(
+      '#type' => 'markup',
+      '#markup' => '<div role="listbox" class="dropdown-menu typeahead" id="typeahead-dropdown" style="display: none;"></div>',
+    );
+    $form['#attached']['js'] = array(
+      drupal_get_path('module', 'idestination_comment_tag') . '/js/idestination_comment_tag.js',
+    );
+    $form['#submit'][] = "idestination_comment_tag_form_submit_handler";
+  }
+}
+
+/**
+ * This is a custom submit handler for Comment form and In this function we send 
+ * email to tag users in comment
+ * 
+ * @global type $user
+ * @global type $base_url
+ * @param type $form
+ * @param type $form_state
+ */
+function idestination_comment_tag_form_submit_handler($form, &$form_state) {
+  global $user,$base_url;
+  $user_obj = user_load($user->uid);
+  $fn = $user_obj->field_first_name['und'][0]['value'];
+  $ln = $user_obj->field_last_name['und'][0]['value'];
+  
+  $comment_id = $form_state['values']['cid'];
+  $comment_obj = comment_load($comment_id);
+  $comment_body = $form_state['values']['comment_body']['und'][0]['value'];
+
+  $tagged_by = "$fn $ln";
+  $url = $base_url . $comment_obj->rdf_data['nid_uri'] . '/#comment-' . $comment_id;
+  $params = array('comment_url' => $url, 'tagged_by' => $tagged_by);
+  $key = 'tag_users';
+  $from = $user_obj->mail;
+  
+  preg_match_all('/(?<!\w)#\w+/', $comment_body, $matches);
+  foreach($matches[0] as $v) {
+    $u_fn_ln = str_replace("#", "", $v);
+    $user_names_arr = explode("_", $u_fn_ln);
+    $first_name = $user_names_arr[0];
+    $last_name = $user_names_arr[1];
+    $user_email_id = get_email_id_by_fnln($first_name, $last_name);
+    $mail = drupal_mail('idestination_comment_tag', $key, $user_email_id, language_default(), $params, $from);
+  }
+}
+
+/**
+ * Implements hook_mail()
+ * 
+ * @global type $base_url
+ * @param type $key
+ * @param type $message
+ * @param type $params
+ * 
+ */
+function idestination_comment_tag_mail($key, &$message, $params) {
+  global $base_url;
+  $message['body'] = array();
+  $language = $message['language'];
+  switch ($key) {
+    case 'tag_users':
+      $message['subject'] = $params['tagged_by'] . ' tagged you on iDestination';
+      $message['body'] = array();
+      $message['body'][] .= t($params['tagged_by'] . " has tagged you at iDestination. Please follow the link below to see the comment- ");
+      $message['body'][] .=t('@comment_url', array('@comment_url' => strip_tags($params['comment_url'])));
+      break;
+  }
+}
+
+/**
+ * This function return user email id by Users first name and last name
+ * @param type $fn
+ * @param type $ln
+ * @return type
+ */
+function get_email_id_by_fnln($fn, $ln) {
+  $q = db_select('users', 'u');
+  $q->Join('field_data_field_first_name', 'fn', 'fn.entity_id = u.uid');
+  $q->leftJoin('field_data_field_last_name', 'ln', 'fn.entity_id = ln.entity_id');
+  $q->fields('u', array('mail'));
+  $q->condition('fn.field_first_name_value', $fn, 'LIKE');
+  $q->condition('ln.field_last_name_value', $ln, 'LIKE');
+  $q->range(0, 1);
+  $res = $q->execute()->fetchField();
+  return $res = $q->execute()->fetchField();
+}
+
+/**
+ * This is hook_menu callback function $items['typehead/json'] and this 
+ * function returns users details as per search keyword
+ */
+function typehead_results() {
+  $serch_key = $_GET['searchword'];
+  $total_res = $_GET['count'];
+  $serch_key = str_replace("@", "", $serch_key);
+  //get users with respective search keyword
+  $q = db_select('field_data_field_first_name', 'fn');
+  $q->leftJoin('field_data_field_last_name', 'ln', 'fn.entity_id = ln.entity_id');
+  $q->fields('fn', array('entity_id'));
+  $q->fields('fn', array('field_first_name_value'));
+  $q->fields('ln', array('field_last_name_value'));
+  $db_or = db_or();
+  $db_or->condition('fn.field_first_name_value', db_like($serch_key) . '%', 'LIKE');
+  $db_or->condition('ln.field_last_name_value', db_like($serch_key) . '%', 'LIKE');
+  $q->condition($db_or);
+  $q->range(0, $total_res);
+  $res = $q->execute()->fetchAll();
+  //render dropdown html
+  $i = 0;
+  $output = '';
+  if (!empty($res)) {
+    //when users are present, now display render users data
+    $output .= '<div role="presentation" class="dropdown-inner js-typeahead-results">';
+    $output .= '<ul role="presentation" class="typeahead-items typeahead-accounts social-context js-typeahead-accounts">';
+    foreach ($res as $v) {
+      $user_obj = user_load($v->entity_id);
+      $output .= '<li role="presentation" class="js-selectable typeahead-accounts-shortcut js-shortcut">';
+      $output .= '<a role="option" class="js-nav" data-search-query="' . $serch_key . '" data-user-id="' . $v->entity_id . '" data-fn="' . $v->field_first_name_value . '" data-ln="' . $v->field_last_name_value . '" href="javascript:void(0);" id="typeahead-item-' . $i . '">';
+      //render user image if not render default image
+      if (!empty($user_obj->picture->uri))
+        $output .= theme('image_style', array('style_name' => 'comment_tag_user_image', 'path' => $user_obj->picture->uri, 'attributes' => array('class' => 'thumbnail')));
+      else
+        $output .= theme('image_style', array('style_name' => 'comment_tag_user_image', 'path' => variable_get('default_img', 'defaultprofile.jpg'), 'attributes' => array('class' => 'thumbnail')));
+      
+      $output .= '<span class="typeahead-user-item-info"><span class="fullname">' . $v->field_first_name_value . ' ' . $v->field_last_name_value . '</span></span>';
+      $output .= '</a>';
+      $output .= '</li>';
+      $i++;
+    }
+    $output .= "</ul></div>";
+  }
+  else {
+    //in case users not found...
+    $output .= '<div role="presentation" class="dropdown-inner js-typeahead-results">';
+    $output .= '<ul role="presentation" class="typeahead-items typeahead-accounts social-context js-typeahead-accounts">';
+    $output .= '<li role="presentation" class="js-selectable typeahead-accounts-shortcut js-shortcut">';
+    $output .= 'No User Found...';
+    $output .= '</li>';
+    $output .= "</ul></div>";
+  }
+  print $output;
+}
